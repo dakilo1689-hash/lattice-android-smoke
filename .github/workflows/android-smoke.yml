@@ -24,11 +24,35 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Use preinstalled Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$sdk_root" ]; then
+            echo "STOP: Android SDK direktorijum nije pronadjen: $sdk_root" >&2
+            exit 1
+          fi
 
-      - name: Install Android 35
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager="$(command -v sdkmanager || true)"
+          if [ -z "$sdkmanager" ] || [ ! -f "$sdkmanager" ] || [ ! -x "$sdkmanager" ]; then
+            sdkmanager=""
+            while IFS= read -r candidate; do
+              if [ -f "$candidate" ] && [ -x "$candidate" ]; then
+                sdkmanager="$candidate"
+                break
+              fi
+            done < <(printf '%s\n' "$sdk_root"/cmdline-tools/*/bin/sdkmanager | sort -Vr)
+          fi
+
+          if [ -z "$sdkmanager" ]; then
+            echo "STOP: izvrsivi sdkmanager nije pronadjen u PATH niti u $sdk_root/cmdline-tools/*/bin/sdkmanager." >&2
+            exit 1
+          fi
+
+          printf 'Koristim sdkmanager: %s\n' "$sdkmanager"
+          printf 'ANDROID_HOME=%s\nANDROID_SDK_ROOT=%s\n' "$sdk_root" "$sdk_root" >> "$GITHUB_ENV"
+          "$sdkmanager" --sdk_root="$sdk_root" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
