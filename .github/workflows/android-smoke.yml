@@ -1,0 +1,103 @@
+name: Android Smoke Build 001
+run-name: LATTICE Android Smoke Build 001 - ${{ github.sha }}
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and verify APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build APK and run lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --stacktrace :app:assembleDebug :app:lintDebug 2>&1 | tee build.log
+
+      - name: Verify APK and record evidence
+        shell: bash
+        env:
+          BUILD_COMMIT: ${{ github.sha }}
+          BUILD_RUN_ID: ${{ github.run_id }}
+          BUILD_REPOSITORY: ${{ github.repository }}
+          BUILD_SERVER: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          cp app/build/outputs/apk/debug/app-debug.apk evidence/LATTICE-Android-Smoke-Build-001-debug.apk
+          apk=evidence/LATTICE-Android-Smoke-Build-001-debug.apk
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$apk" | tee evidence/apk-signature.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | tee evidence/apk-badging.txt
+          grep -F "package: name='com.lattice.smoke' versionCode='1' versionName='0.0.1-smoke001'" evidence/apk-badging.txt
+          grep -F "launchable-activity: name='com.lattice.smoke.MainActivity'" evidence/apk-badging.txt
+          cd evidence
+          sha256sum LATTICE-Android-Smoke-Build-001-debug.apk | tee SHA256SUMS
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          apk = Path("LATTICE-Android-Smoke-Build-001-debug.apk")
+          evidence = {
+              "build": "LATTICE Android Smoke Build 001",
+              "commit": os.environ["BUILD_COMMIT"],
+              "run_id": os.environ["BUILD_RUN_ID"],
+              "run_url": f'{os.environ["BUILD_SERVER"]}/{os.environ["BUILD_REPOSITORY"]}/actions/runs/{os.environ["BUILD_RUN_ID"]}',
+              "apk": apk.name,
+              "apk_bytes": apk.stat().st_size,
+              "apk_sha256": hashlib.sha256(apk.read_bytes()).hexdigest(),
+              "application_id": "com.lattice.smoke",
+              "version_name": "0.0.1-smoke001",
+              "version_code": 1,
+              "signature_verified": True,
+              "device_launch_tested": False,
+          }
+          Path("build-evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
+          print(json.dumps(evidence, indent=2))
+          PY
+          cat build-evidence.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload verified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: LATTICE-Android-Smoke-Build-001-APK
+          path: |
+            evidence/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LATTICE-Android-Smoke-Build-001-Build-Log
+          path: build.log
+          if-no-files-found: warn
+          retention-days: 30

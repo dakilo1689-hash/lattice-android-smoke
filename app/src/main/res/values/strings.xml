@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LATTICE Smoke 001</string>
+    <string name="smoke_screen">LATTICE\n\nAndroid Smoke Build 001\n\nKotlin Android</string>
+</resources>
